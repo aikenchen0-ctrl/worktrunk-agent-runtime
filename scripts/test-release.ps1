@@ -19,7 +19,7 @@ function Invoke-Install([string]$Source, [string]$Destination, [bool]$ExpectedSu
     Assert-Test (($result.Code -eq 0) -eq $ExpectedSuccess) "安装返回码不符合预期：$($result.Code)；$($result.Output)"
 }
 
-function Invoke-Child([string[]]$Arguments, [string]$InputText = '') {
+function Invoke-Child([string[]]$Arguments, [string]$InputText = '', [bool]$InputBom = $false) {
     # 直接收集子进程流，避免 PowerShell 5.1 将预期失败的标准错误变成终止异常。
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $hostExe
@@ -34,11 +34,24 @@ function Invoke-Child([string[]]$Arguments, [string]$InputText = '') {
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $info
     try {
-        [void]$process.Start()
+        # .NET Framework 会按控制台编码立即写入前导码；启动时先固定为无 BOM。
+        $originalInputEncoding = [Console]::InputEncoding
+        try {
+            [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+            [void]$process.Start()
+        } finally { [Console]::InputEncoding = $originalInputEncoding }
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        $process.StandardInput.Write($InputText)
-        $process.StandardInput.Close()
+        # 直接写入 UTF-8 字节，测试不依赖父进程的控制台编码；BOM 用例显式添加。
+        $inputStream = $process.StandardInput.BaseStream
+        try {
+            if ($InputBom) {
+                $preamble = [byte[]](0xEF, 0xBB, 0xBF)
+                $inputStream.Write($preamble, 0, $preamble.Length)
+            }
+            $bytes = [Text.Encoding]::UTF8.GetBytes($InputText)
+            $inputStream.Write($bytes, 0, $bytes.Length)
+        } finally { $inputStream.Dispose() }
         if (-not $process.WaitForExit(30000)) { $process.Kill(); throw '测试子进程超时。' }
         return @{ Code = $process.ExitCode; Output = $stdout.Result + $stderr.Result }
     } finally { $process.Dispose() }
@@ -105,13 +118,15 @@ try {
     $oldCapture = $env:HOOK_CAPTURE
     $env:HOOK_CAPTURE = $capture
     try {
-        $specialPath = "C:\worktree\feature'; throw 42;#"
+        $specialPath = "C:\worktree\模块 feature'; throw 42;#"
         $json = @{ worktree_path = $specialPath; branch = 'ignored-branch' } | ConvertTo-Json -Compress
-        $result = Invoke-Child @('-File', $hook, '-Event', 'post-remove', '-AgentCtl', $recording) $json
-        Assert-Test ($result.Code -eq 17) '删除 Hook 未保留子命令状态。'
-        $captured = Get-Content -LiteralPath $capture -Raw -Encoding UTF8 | ConvertFrom-Json
-        Assert-Test ($captured.Count -eq 4 -and $captured[0] -eq 'cleanup' -and $captured[3] -eq $specialPath) "删除路径未作为单个字面参数传递：$($captured | ConvertTo-Json -Compress)"
-        $count++
+        foreach ($inputBom in @($false, $true)) {
+            $result = Invoke-Child @('-File', $hook, '-Event', 'post-remove', '-AgentCtl', $recording) $json $inputBom
+            Assert-Test ($result.Code -eq 17) "删除 Hook 未保留子命令状态：$($result.Code)；$($result.Output)"
+            $captured = Get-Content -LiteralPath $capture -Raw -Encoding UTF8 | ConvertFrom-Json
+            Assert-Test ($captured.Count -eq 4 -and $captured[0] -eq 'cleanup' -and $captured[3] -eq $specialPath) "删除路径未作为单个字面参数传递：$($captured | ConvertTo-Json -Compress)"
+            $count++
+        }
         $result = Invoke-Child @('-File', $hook, '-Event', 'post-remove', '-AgentCtl', $fake) '{"worktree_path":"relative-path"}'
         Assert-Test ($result.Code -eq 1) '删除 Hook 未拒绝非法上下文。'
         $count++

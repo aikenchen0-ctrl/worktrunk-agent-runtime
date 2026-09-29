@@ -17,6 +17,7 @@
 - 源码包白名单限定仓库根，忽略运行状态、缓存、下载工具和发布产物。
 - 完善 Rust 检查与最低版本 CI；将业务消费者工作流移至 examples，避免在控制器仓库误执行。
 - 修复发布测试启动器继承 PowerShell 7 模块路径导致 Windows PowerShell 5.1 找不到内置命令的问题。
+- 删除 Hook 显式读取 UTF-8 JSON 流，兼容 BOM；增加中文路径及两种 PowerShell 父进程的回归覆盖。
 - 补齐已有 MIT OR Apache-2.0 声明对应许可证正文。
 
 ### 尚未交付

@@ -18,7 +18,10 @@ try {
         'post-remove' {
             # 只把 JSON 路径作为一个参数传递，绝不将分支名拼接成可执行脚本。
             if (-not [Console]::IsInputRedirected) { throw 'post-remove 必须接收 Worktrunk JSON 标准输入。' }
-            $context = [Console]::In.ReadToEnd() | ConvertFrom-Json
+            # Worktrunk 使用 UTF-8；显式解码并识别 BOM，避免依赖宿主控制台代码页。
+            $reader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false, $true), $true)
+            try { $context = $reader.ReadToEnd() | ConvertFrom-Json }
+            finally { $reader.Dispose() }
             $path = $context.worktree_path
             if ($path -isnot [string] -or -not [IO.Path]::IsPathRooted($path) -or $path -notmatch '^(?:[A-Za-z]:[\\/]|\\\\)') {
                 throw 'Worktrunk 上下文缺少绝对 worktree_path，已拒绝清理。'
