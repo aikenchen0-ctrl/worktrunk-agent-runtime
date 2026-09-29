@@ -14,6 +14,8 @@
 
 候选发布、消费者升级和协作协调可由三个按需 Skill 复用现有工具完成，源文件位于 `skills/`，用法见 [Codex Skill 接入说明](docs/codex-skills-guide.md)。Skill 不替代锁、制品不可覆盖、真实验证收据或用户授权，也不代表后台自动化已上线。
 
+不必把所有跨仓操作都开发成机器人：按 [Agent 按需协作方案](docs/agent-led-collaboration.md) 接入现有工具，由 Agent 准备候选、迁移调用、定向通知并交付草稿 PR。三个 Skill 已提供交接模板、重复任务与中断恢复规则；`examples/AGENTS.md` 规定检查收件箱的时机、共享文件归属和合并前验证门槛。
+
 ## Windows 安装
 
 需要 Rust 工具链、Git、PowerShell；Android 构建另需 JDK、Android SDK 与 ADB。第一次在本目录构建可执行文件：

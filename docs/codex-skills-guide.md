@@ -14,11 +14,21 @@
 
 它们是按需执行的操作规程，不是已经打通跨机器身份、远端制品发布或自动消息服务的证明。安装不包含发布、推送、建 PR 或向其他任务发送消息的授权。
 
+完整接入顺序、任务检查点、单协调者模式和无需开发为服务的边界见 [Agent 按需协作方案](agent-led-collaboration.md)。
+
 ## 文件与安装
 
 工程源文件：`F:\code\worktree\agent-runtime\skills\aar-candidate`、`aar-upgrade`、`aar-coordinate`。
 
-本机安装目标：`C:\Users\developer\.codex\skills\aar-candidate`、`aar-upgrade`、`aar-coordinate`。每个目录包含 `SKILL.md`、`agents/openai.yaml` 和 `references/workflow.md`。在同一账户的其他仓库使用安装副本；工程目录保留可维护源文件。
+本机安装目标：`C:\Users\developer\.codex\skills\aar-candidate`、`aar-upgrade`、`aar-coordinate`。每个目录包含 `SKILL.md`、`agents/openai.yaml`、`references/workflow.md` 和一个角色交接模板。在同一账户的其他仓库使用安装副本；工程目录保留可维护源文件。
+
+| 角色 | 随 Skill 安装的模板 | 保存什么 |
+| --- | --- | --- |
+| 提供方 | `aar-candidate/assets/candidate-handoff.md` | 草稿/就绪阶段、契约、制品与事件证据 |
+| 消费者 | `aar-upgrade/assets/upgrade-report.md` | 迁移提交、固定组合、真实收据和 PR 状态 |
+| 协调者 | `aar-coordinate/assets/coordination-record.md` | 已核实映射、授权来源、投递观察和下一责任方 |
+
+模板不是控制器事件、锁或权限凭据。按角色保存到已有外部协作目录或获准附件；消费者各写各的交付记录，协调者汇总，不让所有 Agent 同时修改一份实时接口文档。
 
 不要同时把同名副本安装到用户目录、业务仓库和其他发现目录。修改工程源文件后需要有意识地更新安装副本并核对摘要，不把两个副本当作自动同步。
 
@@ -86,3 +96,12 @@ $aar-coordinate
 - 未验证 Desktop 菜单热加载、真实远端发布、GitHub PR 创建或跨任务消息送达；这些不能计入本轮通过项。
 
 官方规范：`https://learn.chatgpt.com/docs/build-skills`。
+
+### 按需协作完善核验：2026-09-30
+
+- 三个工程源 Skill 与三个安装副本均通过结构校验；12 个安装文件与工程源文件的 SHA-256 一致。
+- 12 段 PowerShell 示例通过语法解析，9 个 Skill 内部文件引用全部可解析；示例中的外部操作未执行。
+- 新增的三份角色交接模板已包含在源码包及 Windows 安装包中。安装、Hook 和清理边界的 12 项回归在 PowerShell 7 与 Windows PowerShell 5.1 下分别通过。
+- 独立只读场景演练检查了部分发布、中断恢复、旧验证状态、消息结果未知、越权通知及旧 CI 证据等情况；发现并修正“稳定升级工作项”和“候选验证修订”的混淆，再次演练确认原开放 PR 复用和新工作项创建的边界。
+- 已更新本机既有 Skill 安装副本，未覆盖业务仓库的 AGENTS.md、修改业务源码或创建后台调度。
+- 本轮通过的是流程、模板、静态检查及软件包回归，不包括真实跨仓 AAR 发布、跨任务通知、消费者升级 PR、跨机器收据或真机联调的端到端验收。
