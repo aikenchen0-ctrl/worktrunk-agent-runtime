@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "event_type": "contract_candidate",
+  "event_id": "integration-review-20260927-core",
+  "provider": "univerge-heavy-drag-core",
+  "candidate_version": "0.1.0-dev.c8e2e563065c.metadata1",
+  "commit": "c8e2e563065c2f9b8d61742b86c3b0ff295c3371",
+  "affected_consumers": ["univerge-heavy-drag-compose"],
+  "test_scope": "local-compose-combination-only",
+  "artifact": {
+    "coordinate": "com.paifa.univerge:univerge-heavy-drag-core:0.1.0-dev.c8e2e563065c.metadata1",
+    "sha256": "4e37156db610e0170663bafe80c0410f6d6daeae11b47db584eb62de5be31acc",
+    "url": "http://127.0.0.1:18764/com/paifa/univerge/univerge-heavy-drag-core/0.1.0-dev.c8e2e563065c.metadata1/univerge-heavy-drag-core-0.1.0-dev.c8e2e563065c.metadata1.jar"
+  }
+}

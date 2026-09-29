@@ -1,0 +1,104 @@
+# 业务消费者仓库的模板，不在外挂仓库自动运行。
+name: Candidate Artifact Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_file:
+        description: '工作区内候选事件 JSON 文件路径'
+        required: true
+        type: string
+      consumer:
+        description: '消费者模块名'
+        required: true
+        type: string
+      gradle_task:
+        description: '消费者 Gradle 验证任务'
+        required: true
+        type: string
+      candidate_property:
+        description: '消费者 Gradle 构建中用于选择候选版本的属性名'
+        required: true
+        type: string
+      consumer_project:
+        description: '消费者 Gradle 项目路径，例如 :app'
+        required: true
+        type: string
+      configuration:
+        description: '可解析的依赖配置，例如 debugRuntimeClasspath'
+        required: true
+        type: string
+      agentctl_url:
+        description: '已发布 agentctl.exe 的 HTTPS 地址'
+        required: true
+        type: string
+      agentctl_sha256:
+        description: 'agentctl.exe 的 SHA-256'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download agentctl
+        shell: pwsh
+        env:
+          AGENTCTL_URL: ${{ inputs.agentctl_url }}
+          AGENTCTL_SHA256: ${{ inputs.agentctl_sha256 }}
+        run: |
+          if ($env:AGENTCTL_URL -notmatch '^https://') { throw 'agentctl 下载地址必须使用 HTTPS' }
+          if ($env:AGENTCTL_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'agentctl SHA-256 无效' }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\agentctl" | Out-Null
+          $binary = "$env:RUNNER_TEMP\agentctl\agentctl.exe"
+          Invoke-WebRequest -Uri $env:AGENTCTL_URL -OutFile $binary
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash
+          if ($actual -ne $env:AGENTCTL_SHA256) { throw 'agentctl SHA-256 不匹配' }
+      - name: Prepare runtime
+        shell: pwsh
+        env:
+          AGENT_ID: github-candidate-${{ github.run_id }}
+          AGENT_RUNTIME_ROOT: ${{ runner.temp }}\agent-runtime
+        run: |
+          $agentctl = "$env:RUNNER_TEMP\agentctl\agentctl.exe"
+          & $agentctl prepare --allow-primary
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $agentctl doctor --format json
+          exit $LASTEXITCODE
+      - name: Validate candidate
+        shell: pwsh
+        env:
+          AGENT_ID: github-candidate-${{ github.run_id }}
+          AGENT_RUNTIME_ROOT: ${{ runner.temp }}\agent-runtime
+          EVENT_FILE: ${{ inputs.event_file }}
+          CONSUMER: ${{ inputs.consumer }}
+          GRADLE_TASK: ${{ inputs.gradle_task }}
+          CANDIDATE_PROPERTY: ${{ inputs.candidate_property }}
+          CONSUMER_PROJECT: ${{ inputs.consumer_project }}
+          CONFIGURATION: ${{ inputs.configuration }}
+        run: |
+          $agentctl = "$env:RUNNER_TEMP\agentctl\agentctl.exe"
+          & "$env:GITHUB_WORKSPACE\scripts\validate-candidate.ps1" `
+            -EventFile $env:EVENT_FILE `
+            -Consumer $env:CONSUMER `
+            -GradleTask $env:GRADLE_TASK `
+            -CandidateProperty $env:CANDIDATE_PROPERTY `
+            -ConsumerProject $env:CONSUMER_PROJECT `
+            -Configuration $env:CONFIGURATION `
+            -AgentCtl $agentctl
+      - name: Upload validation receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}\agent-runtime\agents\**\build-result.json
+            ${{ runner.temp }}\agent-runtime\agents\**\receipts\*.json
+            ${{ runner.temp }}\agent-runtime\agents\**\validations\*.json
+            ${{ runner.temp }}\agent-runtime\agents\**\logs\*.log
+            ${{ runner.temp }}\agent-runtime\events\**\acks\*.json
+            ${{ runner.temp }}\agent-runtime\events.jsonl

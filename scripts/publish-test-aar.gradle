@@ -1,0 +1,58 @@
+import org.gradle.api.publish.maven.MavenPublication
+
+def modulePath = System.getenv('AGENT_TEST_PROVIDER_PROJECT')
+def candidateVersion = System.getenv('AGENT_TEST_CANDIDATE_VERSION')
+def repositoryPath = System.getenv('AGENT_TEST_MAVEN_REPOSITORY')
+def corePath = System.getenv('AGENT_TEST_CORE_PROJECT')
+if (!modulePath || !corePath || !candidateVersion || !repositoryPath) {
+    throw new GradleException('测试发布必须指定提供方、核心模块、版本和仓库目录')
+}
+if (candidateVersion.contains('SNAPSHOT') || !(candidateVersion ==~ /[A-Za-z0-9_.-]+/)) {
+    throw new GradleException('测试候选版本必须是固定版本且不能包含路径字符')
+}
+
+gradle.beforeProject { project ->
+    if (project.path != modulePath && project.path != corePath) {
+        return
+    }
+    project.pluginManager.apply('maven-publish')
+    project.version = candidateVersion
+    if (project.path == modulePath) {
+        project.pluginManager.withPlugin('com.android.library') {
+            project.android.publishing.singleVariant('release')
+        }
+    }
+    project.gradle.projectsEvaluated {
+        project.publishing {
+            publications {
+                create('agentTestCandidate', MavenPublication) {
+                    groupId = project.group.toString()
+                    artifactId = project.name
+                    version = candidateVersion
+                    if (project.path == corePath) {
+                        from(project.components.getByName('java'))
+                    } else {
+                        // 从正式组件发布，保留 Android 变体、传递依赖和模块元数据。
+                        from(project.components.getByName('release'))
+                    }
+                }
+            }
+            repositories {
+                maven {
+                    name = 'agentCandidate'
+                    url = project.uri(repositoryPath)
+                }
+            }
+        }
+        project.tasks.withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository).configureEach {
+            if (publication.name == 'agentTestCandidate' && repository.name == 'agentCandidate') {
+                doFirst {
+                    def coordinatePath = "${publication.groupId.replace('.', '/')}/${publication.artifactId}/${publication.version}"
+                    if (new File(repositoryPath, coordinatePath).exists()) {
+                        throw new GradleException('候选坐标已经存在，测试发布拒绝覆盖')
+                    }
+                }
+            }
+        }
+    }
+}

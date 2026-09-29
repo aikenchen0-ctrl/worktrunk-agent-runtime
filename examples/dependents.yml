@@ -1,0 +1,5 @@
+# 这是提供方仓库中的跨仓消费者登记。它是可审查规则，不是运行时状态。
+provider: univerge-heavy-drag-core
+consumers:
+  - univerge-heavy-drag-android
+  - univerge-heavy-drag-compose

@@ -1,0 +1,6 @@
+interface:
+  display_name: "AAR 候选发布"
+  short_description: "分析模块契约变化，验证并交付不可变候选制品和消费者迁移说明"
+  default_prompt: "使用 $aar-candidate 为当前指定模块准备候选，核对接口变更、发布目标及授权，验证后生成交接信息。"
+policy:
+  allow_implicit_invocation: true

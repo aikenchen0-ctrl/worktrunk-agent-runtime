@@ -1,0 +1,112 @@
+import java.security.MessageDigest
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.tasks.testing.Test
+import groovy.json.JsonOutput
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+gradle.beforeProject { project ->
+    if (project.path != System.getenv('AGENT_CANDIDATE_CONSUMER_PROJECT')) {
+        return
+    }
+    def verifiedArtifact = [:]
+    project.tasks.register('verifyCandidateArtifact') {
+        doLast {
+            def coordinate = System.getenv('AGENT_CANDIDATE_COORDINATE')
+            def expectedSha = System.getenv('AGENT_ARTIFACT_SHA256')
+            def configurationName = System.getenv('AGENT_CANDIDATE_CONFIGURATION')
+            def extension = System.getenv('AGENT_CANDIDATE_EXTENSION')
+            if (!coordinate || !expectedSha || !configurationName || !extension) {
+                throw new GradleException('候选制品坐标、SHA-256、扩展名或 configuration 未设置')
+            }
+            def parts = coordinate.split(':', -1)
+            if (parts.length != 3 || parts.any { it.isEmpty() }) {
+                throw new GradleException('候选 Maven 坐标必须是 group:artifact:version')
+            }
+            def configuration = project.configurations.findByName(configurationName)
+            if (configuration == null || !configuration.canBeResolved) {
+                throw new GradleException("不能解析 configuration：${configurationName}")
+            }
+            // 使用实际解析图覆盖传递消费者，并拒绝同一模块同时混入源码与候选包。
+            def components = configuration.incoming.resolutionResult.allComponents
+            def sourceCopies = components.findAll { component ->
+                component.id instanceof ProjectComponentIdentifier &&
+                    component.moduleVersion?.group == parts[0] && component.moduleVersion?.name == parts[1]
+            }
+            if (!sourceCopies.isEmpty()) {
+                throw new GradleException("候选依赖仍混入同模块 project 源码：${sourceCopies*.id}；必须统一依赖来源后验证")
+            }
+            def selected = components.findAll { component ->
+                component.id instanceof ModuleComponentIdentifier &&
+                    component.id.group == parts[0] && component.id.module == parts[1] &&
+                    component.id.version == parts[2]
+            }
+            if (selected.size() != 1) {
+                throw new GradleException("消费者未实际选择候选 Maven 依赖 ${coordinate}；版本冲突或 project 替换不能证明候选制品兼容")
+            }
+            def artifacts = configuration.incoming.artifactView {
+                componentFilter { id ->
+                    id instanceof ModuleComponentIdentifier && id.group == parts[0] &&
+                        id.module == parts[1] && id.version == parts[2]
+                }
+            }.artifacts.artifacts
+            def matches = artifacts.findAll { artifact ->
+                artifact.file.name.toLowerCase(Locale.ROOT).endsWith(".${extension}")
+            }
+            if (matches.size() != 1) {
+                throw new GradleException("候选制品未唯一解析到指定 configuration：${coordinate}，命中 ${matches.size()} 个 ${extension} 文件")
+            }
+            def bytes = MessageDigest.getInstance('SHA-256').digest(matches[0].file.bytes)
+            def actualSha = bytes.collect { String.format('%02x', it & 0xff) }.join('')
+            if (!actualSha.equalsIgnoreCase(expectedSha)) {
+                throw new GradleException("Gradle 实际使用的候选制品 SHA-256 不匹配：${actualSha}")
+            }
+            verifiedArtifact.putAll([
+                coordinate: coordinate, artifact_sha256: actualSha,
+                project: project.path, configuration: configurationName
+            ])
+            println("候选制品已由 Gradle 解析并校验：${coordinate} ${actualSha}")
+        }
+    }
+    def testTask = System.getenv('AGENT_CANDIDATE_TEST_TASK')
+    if (testTask) {
+        project.gradle.projectsEvaluated {
+            project.tasks.named(testTask).configure {
+                if (!(it instanceof Test)) {
+                    throw new GradleException('候选验证目前要求 JVM Test 任务，不能用 help、assemble 或聚合 check 代替测试')
+                }
+                dependsOn project.tasks.named('verifyCandidateArtifact')
+                // 每次验证必须产生本次运行的测试证据，禁止复用旧测试结果。
+                outputs.upToDateWhen { false }
+                outputs.doNotCacheIf('候选验证要求本次测试证据') { true }
+                afterSuite { descriptor, result ->
+                    if (descriptor.parent != null) { return }
+                    def evidencePath = System.getenv('AGENT_VALIDATION_EVIDENCE')
+                    def runId = System.getenv('AGENT_VALIDATION_RUN_ID')
+                    def eventId = System.getenv('AGENT_VALIDATION_EVENT_ID')
+                    def attemptId = System.getenv('AGENT_VALIDATION_ATTEMPT_ID')
+                    def consumer = System.getenv('AGENT_VALIDATION_CONSUMER')
+                    if (!evidencePath || !runId || !eventId || !attemptId || !consumer || verifiedArtifact.isEmpty()) {
+                        throw new GradleException('候选验证缺少本次运行身份或制品解析证据')
+                    }
+                    def evidence = new LinkedHashMap(verifiedArtifact)
+                    evidence.putAll([
+                        schema_version: 1, run_id: runId, event_id: eventId,
+                        attempt_id: attemptId, consumer: consumer, task: path,
+                        tests: result.testCount, failures: result.failedTestCount, skipped: result.skippedTestCount
+                    ])
+                    def target = new File(evidencePath).toPath()
+                    Files.createDirectories(target.parent)
+                    def temporary = Files.createTempFile(target.parent, 'validation-', '.tmp')
+                    try {
+                        Files.write(temporary, JsonOutput.toJson(evidence).getBytes('UTF-8'))
+                        Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                    } finally {
+                        Files.deleteIfExists(temporary)
+                    }
+                }
+            }
+        }
+    }
+}

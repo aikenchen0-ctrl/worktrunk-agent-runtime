@@ -1,0 +1,32 @@
+import org.gradle.api.artifacts.ProjectDependency
+
+def consumerPath = System.getenv('AGENT_TEST_CONSUMER_PROJECT')
+def candidateVersion = System.getenv('AGENT_TEST_CANDIDATE_VERSION')
+def repositoryPath = System.getenv('AGENT_TEST_MAVEN_REPOSITORY')
+if (!consumerPath || !candidateVersion || !repositoryPath) {
+    throw new GradleException('测试消费必须指定消费者、候选版本和仓库目录')
+}
+
+gradle.settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement.repositories.maven {
+        name = 'agentTestCandidate'
+        url = new File(repositoryPath).toURI()
+    }
+}
+
+gradle.beforeProject { project ->
+    if (project.path != consumerPath) {
+        return
+    }
+    project.afterEvaluate {
+        def api = project.configurations.getByName('api')
+        api.dependencies.removeAll { dependency ->
+            dependency instanceof ProjectDependency &&
+                dependency.dependencyProject.path in [
+                    ':univerge-heavy-drag-core',
+                    ':univerge-heavy-drag-android'
+                ]
+        }
+        project.dependencies.add('api', "com.paifa.univerge:univerge-heavy-drag-android:${candidateVersion}")
+    }
+}

@@ -1,0 +1,13 @@
+def version = System.getenv('AGENT_TEST_CANDIDATE_VERSION')
+if (!version || !(version ==~ /[A-Za-z0-9_.-]+/) || version.contains('SNAPSHOT')) {
+    throw new GradleException('组合实测必须指定固定候选版本')
+}
+gradle.beforeProject { targetProject ->
+    targetProject.configurations.configureEach { configuration ->
+        configuration.resolutionStrategy.dependencySubstitution {
+            // 仅供此测试工程组合验证：统一两种来源，禁止旧源码与新制品混用。
+            substitute(project(':univerge-heavy-drag-android')).using(module("com.paifa.univerge:univerge-heavy-drag-android:${version}"))
+            substitute(project(':univerge-heavy-drag-core')).using(module("com.paifa.univerge:univerge-heavy-drag-core:${version}"))
+        }
+    }
+}

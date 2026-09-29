@@ -1,0 +1,61 @@
+gradle.projectsEvaluated {
+    rootProject.tasks.register('warmAllConfigurations') {
+        group = 'verification'
+        description = 'Resolves all resolvable dependency configurations in this build.'
+        doLast {
+            def resolved = []
+            def skipped = []
+            def failed = []
+            rootProject.allprojects.each { project ->
+                project.configurations.findAll {
+                    it.canBeResolved && !it.name.endsWith('DependenciesMetadata')
+                }.each { configuration ->
+                    def name = "${project.path}:${configuration.name}"
+                    try {
+                        def files = configuration.resolve()
+                        resolved << [name: name, files: files.size()]
+                        logger.lifecycle("WARM_OK ${name} files=${files.size()}")
+                    } catch (Exception error) {
+                        def causes = []
+                        def current = error
+                        while (current != null) {
+                            causes << "${current.class.simpleName}: ${current.message}"
+                            current = current.cause
+                        }
+                        def detail = causes.join('\n')
+                        def internalVariantConflict =
+                            (detail.contains('variants of project :') ||
+                             detail.contains('variants of project ') ||
+                             detail.contains('variants of root project :') ||
+                             detail.contains('variants of root project ')) &&
+                            (detail.contains('ArtifactSelectionException') ||
+                             detail.contains('VariantSelectionByAttributesException') ||
+                             detail.contains('cannot choose between the following variants') ||
+                             detail.contains('we cannot choose between the following variants'))
+                        if (internalVariantConflict) {
+                            skipped << [name: name, reason: 'internal-project-variant-ambiguity', causes: causes]
+                            logger.lifecycle("WARM_SKIP ${name} internal-project-variant-ambiguity")
+                        } else {
+                            failed << [name: name, causes: causes]
+                            logger.lifecycle("WARM_FAIL ${name} ${causes.last()}")
+                        }
+                    }
+                }
+            }
+            def outputPath = System.getenv('AGENT_WARM_REPORT')
+            if (outputPath) {
+                def output = new File(outputPath)
+                output.parentFile.mkdirs()
+                output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+                    resolved: resolved,
+                    skipped: skipped,
+                    failed: failed
+                ]))
+            }
+            logger.lifecycle("WARM_SUMMARY resolved=${resolved.size()} skipped=${skipped.size()} failed=${failed.size()}")
+            if (!failed.isEmpty()) {
+                throw new GradleException("${failed.size()} dependency configurations could not be resolved")
+            }
+        }
+    }
+}

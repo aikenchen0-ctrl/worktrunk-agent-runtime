@@ -1,0 +1,16 @@
+import org.gradle.api.tasks.testing.Test
+
+def sourceRoot = System.getenv('AGENT_TEST_BASELINE_ROOT')
+if (!sourceRoot || !new File(sourceRoot, 'settings.gradle.kts').isFile()) {
+    throw new GradleException('源码契约对照必须指定已有基线工程目录')
+}
+gradle.beforeProject { project ->
+    if (project.path == ':univerge-accessibility') {
+        project.tasks.withType(Test).configureEach {
+            // 仅用于纯源码文本契约对照；不构成整个基线二进制的重新构建。
+            workingDir new File(sourceRoot, 'univerge-accessibility')
+            outputs.upToDateWhen { false }
+            outputs.doNotCacheIf('源码契约基线对照') { true }
+        }
+    }
+}

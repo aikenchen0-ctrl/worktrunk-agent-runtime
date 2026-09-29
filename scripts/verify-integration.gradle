@@ -1,0 +1,99 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.tasks.testing.Test
+import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+// 请求由控制器嵌入本次运行脚本，不从共享环境读取可变清单。
+def spec = integrationRequest.inputs.manifest
+def evidence = [schema_version: 1, integration_id: integrationRequest.integration_id,
+    input_sha256: integrationRequest.input_sha256, project: spec.project,
+    configuration: spec.configuration, test_task: spec.test_task,
+    test_executed: false, build_task: spec.build_task, build_executed: false]
+def hashBytes = { bytes -> MessageDigest.getInstance('SHA-256').digest(bytes).collect { String.format('%02x', it & 0xff) }.join('') }
+def hashFile = { file ->
+    def digest = MessageDigest.getInstance('SHA-256')
+    file.withInputStream { stream ->
+        byte[] buffer = new byte[65536]
+        int count
+        while ((count = stream.read(buffer)) > 0) { digest.update(buffer, 0, count) }
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join('')
+}
+def saveEvidence = {
+    def target = new File(integrationRequest.evidence_path).toPath()
+    Files.createDirectories(target.parent)
+    def temporary = Files.createTempFile(target.parent, 'combination-', '.tmp')
+    try {
+        Files.write(temporary, JsonOutput.toJson(evidence).getBytes('UTF-8'))
+        Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+    } finally { Files.deleteIfExists(temporary) }
+}
+gradle.projectsEvaluated {
+    def project = gradle.rootProject.findProject(spec.project)
+    if (project == null) { throw new GradleException('找不到集成项目') }
+    def test = project.tasks.findByName(spec.test_task.tokenize(':').last())
+    if (!(test instanceof Test)) { throw new GradleException('集成 test_task 必须是实际 JVM Test 任务') }
+    def verifier = project.tasks.register('verifyIntegrationCandidates') {
+        doLast {
+            def configuration = project.configurations.findByName(spec.configuration)
+            if (configuration == null || !configuration.canBeResolved) { throw new GradleException('集成配置不可解析') }
+            def components = configuration.incoming.resolutionResult.allComponents
+            def artifacts = configuration.incoming.artifactView {}.artifacts.artifacts
+            def candidates = []
+            integrationRequest.inputs.events.each { item ->
+                def expected = item.event.artifact
+                def parts = expected.coordinate.split(':')
+                if (components.any { component -> component.id instanceof ProjectComponentIdentifier && component.moduleVersion?.group == parts[0] && component.moduleVersion?.name == parts[1] }) {
+                    throw new GradleException("集成候选混入项目源码：${expected.coordinate}")
+                }
+                def matches = artifacts.findAll { artifact ->
+                    def id = artifact.id.componentIdentifier
+                    id instanceof ModuleComponentIdentifier && id.group == parts[0] && id.module == parts[1] && id.version == parts[2] && artifact.file.name.endsWith('.' + item.extension)
+                }
+                if (matches.size() != 1) { throw new GradleException("集成候选未唯一选中：${expected.coordinate}") }
+                def actual = hashFile(matches[0].file)
+                if (!actual.equalsIgnoreCase(expected.sha256)) { throw new GradleException("集成候选摘要不匹配：${expected.coordinate}") }
+                candidates.add([coordinate: expected.coordinate, sha256: actual])
+            }
+            // 同时保存所有选中制品与摘要，避免只留下声明版本而丢失解析结果。
+            def resolved = artifacts.collect { artifact ->
+                [component: artifact.id.componentIdentifier.displayName,
+                 artifact: artifact.id.displayName, sha256: hashFile(artifact.file)]
+            }.sort { a, b -> (a.component + a.artifact) <=> (b.component + b.artifact) }
+            evidence.candidates = candidates
+            evidence.resolved_artifacts = resolved
+            evidence.graph_sha256 = hashBytes(JsonOutput.toJson(resolved).getBytes('UTF-8'))
+            saveEvidence()
+        }
+    }
+    test.dependsOn(verifier)
+    test.outputs.upToDateWhen { false }
+    test.outputs.doNotCacheIf('组合验证要求本次测试证据') { true }
+    test.afterSuite { descriptor, result ->
+        if (descriptor.parent == null) {
+            evidence.tests = result.testCount
+            evidence.failures = result.failedTestCount
+            evidence.skipped = result.skippedTestCount
+            // 失败测试不会执行 doLast；在根测试套件结束时立即保存真实执行结果。
+            evidence.test_executed = true
+            saveEvidence()
+        }
+    }
+    test.doLast {
+        evidence.test_executed = true
+        saveEvidence()
+    }
+    if (spec.build_task) {
+        def build = project.tasks.findByName(spec.build_task.tokenize(':').last())
+        if (build == null) { throw new GradleException('找不到集成构建任务') }
+        build.dependsOn(verifier)
+        build.outputs.upToDateWhen { false }
+        build.doLast {
+            evidence.build_executed = true
+            saveEvidence()
+        }
+    }
+}

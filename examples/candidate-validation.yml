@@ -1,0 +1,6 @@
+# 消费者仓库中的跨仓候选验证配置。由 CI 读取，不保存运行时锁或缓存。
+consumer: univerge-heavy-drag-compose
+gradle_task: ':univerge-heavy-drag-compose:testDebugUnitTest'
+candidate_property: 'HEAVY_DRAG_ANDROID_VERSION'
+consumer_project: ':univerge-heavy-drag-compose'
+configuration: 'debugRuntimeClasspath'

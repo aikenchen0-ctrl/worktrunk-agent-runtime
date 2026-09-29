@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "events": [
+    "<provider-event-id-1>",
+    "<provider-event-id-2>"
+  ],
+  "project": ":app",
+  "configuration": "releaseRuntimeClasspath",
+  "test_task": ":app:testReleaseUnitTest",
+  "build_task": ":app:assembleRelease"
+}

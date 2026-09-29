@@ -1,0 +1,6 @@
+interface:
+  display_name: "AAR 消费者升级"
+  short_description: "迁移固定候选依赖和调用，生成真实验证收据并按授权创建升级 PR"
+  default_prompt: "使用 $aar-upgrade 处理指定候选事件，在当前消费者的独立 Worktree 迁移并验证；仅在授权范围内创建升级 PR。"
+policy:
+  allow_implicit_invocation: true

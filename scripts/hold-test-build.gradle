@@ -1,0 +1,9 @@
+gradle.beforeProject { project ->
+    if (project.path == ':') {
+        project.tasks.register('agentRuntimeHoldBuild') {
+            doLast {
+                Thread.sleep(45000)
+            }
+        }
+    }
+}

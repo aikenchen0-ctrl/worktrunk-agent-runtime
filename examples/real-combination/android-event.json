@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "event_type": "contract_candidate",
+  "event_id": "integration-review-20260927-android",
+  "provider": "univerge-heavy-drag-android",
+  "candidate_version": "0.1.0-dev.c8e2e563065c.metadata1",
+  "commit": "c8e2e563065c2f9b8d61742b86c3b0ff295c3371",
+  "affected_consumers": ["univerge-heavy-drag-compose"],
+  "test_scope": "local-compose-combination-only",
+  "artifact": {
+    "coordinate": "com.paifa.univerge:univerge-heavy-drag-android:0.1.0-dev.c8e2e563065c.metadata1",
+    "sha256": "70f9cdd2c5b5930d3d8db1620abfdd3ab38f9104b9059fe00f25c4ae9640aef0",
+    "url": "http://127.0.0.1:18764/com/paifa/univerge/univerge-heavy-drag-android/0.1.0-dev.c8e2e563065c.metadata1/univerge-heavy-drag-android-0.1.0-dev.c8e2e563065c.metadata1.aar"
+  }
+}

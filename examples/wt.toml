@@ -1,0 +1,15 @@
+# Windows 公共模板；要求安装到 %LOCALAPPDATA%\agent-runtime。
+# AGENT_RUNTIME_ROOT、JDK 与 SDK 应由所有 Agent 共用的启动环境统一提供。
+# 不插入动态分支名；post-remove 从 Worktrunk 标准输入读取 JSON 路径。
+
+[pre-start]
+agent-runtime = """powershell.exe -NoProfile -NonInteractive -Command '& (Join-Path $env:LOCALAPPDATA "agent-runtime\\scripts\\worktrunk-hook.ps1") -Event pre-start; exit $LASTEXITCODE'"""
+
+[pre-merge]
+agent-runtime = """powershell.exe -NoProfile -NonInteractive -Command '& (Join-Path $env:LOCALAPPDATA "agent-runtime\\scripts\\worktrunk-hook.ps1") -Event pre-merge; exit $LASTEXITCODE'"""
+
+[pre-remove]
+agent-runtime = """powershell.exe -NoProfile -NonInteractive -Command '& (Join-Path $env:LOCALAPPDATA "agent-runtime\\scripts\\worktrunk-hook.ps1") -Event pre-remove; exit $LASTEXITCODE'"""
+
+[post-remove]
+agent-runtime = """powershell.exe -NoProfile -NonInteractive -Command '& (Join-Path $env:LOCALAPPDATA "agent-runtime\\scripts\\worktrunk-hook.ps1") -Event post-remove; exit $LASTEXITCODE'"""

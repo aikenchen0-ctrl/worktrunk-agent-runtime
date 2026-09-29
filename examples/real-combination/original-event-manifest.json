@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "events": ["20260926T082344-58ad23e1af8c"],
+  "project": ":univerge-heavy-drag-compose",
+  "configuration": "debugRuntimeClasspath",
+  "test_task": ":univerge-heavy-drag-compose:testDebugUnitTest"
+}

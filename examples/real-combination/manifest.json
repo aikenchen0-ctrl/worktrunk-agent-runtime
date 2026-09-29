@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "events": ["integration-review-20260927-android", "integration-review-20260927-core"],
+  "project": ":univerge-heavy-drag-compose",
+  "configuration": "debugRuntimeClasspath",
+  "test_task": ":univerge-heavy-drag-compose:testDebugUnitTest",
+  "build_task": ":univerge-heavy-drag-compose:assembleDebug"
+}

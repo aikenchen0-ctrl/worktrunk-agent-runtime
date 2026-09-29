@@ -1,0 +1,75 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 安装固定构建工具链
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup override set 1.96.0
+          exit $LASTEXITCODE
+      - name: 检查格式
+        run: cargo fmt --check
+      - name: 静态检查
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: 运行 Rust 回归测试
+        run: cargo test --locked
+      - name: 打包并验证安装与清理边界
+        run: |
+          & .\scripts\package-release.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $package = @(Get-ChildItem -LiteralPath .\dist -Directory)
+          if ($package.Count -ne 1) { throw '发布包目录不唯一' }
+          & .\scripts\test-release.ps1 -PackageRoot $package[0].FullName
+          exit $LASTEXITCODE
+      - name: 检查源码包文件边界
+        run: |
+          $files = @(cargo package --list --locked --allow-dirty)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($files -match '(^|[/\\])(\.runtime|\.tools|\.cache-snapshots|target[^/\\]*|dist)([/\\]|$)') { throw '源码包包含本机数据' }
+      - name: 上传待人工审核的软件包
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-runtime-windows-x86_64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  msrv:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 检查最低 Rust 版本
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.85.0 check --locked --all-targets
+          exit $LASTEXITCODE

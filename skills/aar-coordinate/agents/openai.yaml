@@ -1,0 +1,6 @@
+interface:
+  display_name: "AAR 协作协调"
+  short_description: "汇总候选和消费者证据，通知已授权任务并组织固定版本组合验证"
+  default_prompt: "使用 $aar-coordinate 汇总候选事件与消费者状态，核对任务映射，仅向已明确授权的 Codex 任务发送迁移通知。"
+policy:
+  allow_implicit_invocation: true
