@@ -42,6 +42,8 @@ jobs:
           $package = @(Get-ChildItem -LiteralPath .\dist -Directory)
           if ($package.Count -ne 1) { throw '发布包目录不唯一' }
           & .\scripts\test-release.ps1 -PackageRoot $package[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -NonInteractive -File .\scripts\test-release.ps1 -PackageRoot $package[0].FullName
           exit $LASTEXITCODE
       - name: 检查源码包文件边界
         run: |

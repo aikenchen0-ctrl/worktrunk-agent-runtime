@@ -29,6 +29,8 @@ function Invoke-Child([string[]]$Arguments, [string]$InputText = '') {
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
+    # .NET 启动绕过 PowerShell 7 的 WinPSModulePath 修正；让 5.1 重建自己的模块路径。
+    $info.EnvironmentVariables.Remove('PSModulePath')
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $info
     try {
