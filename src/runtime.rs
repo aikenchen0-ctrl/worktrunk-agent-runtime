@@ -1991,22 +1991,16 @@ impl Runtime {
         let worktree_lock_path =
             PathBuf::from(&metadata.paths.worktree_root).join("locks/build.json");
         let output_result = if cfg!(windows) {
-            let encoded = powershell_invocation(&wrapper, &gradle_args);
-            let mut command = Command::new("powershell.exe");
-            command
-                .args([
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-EncodedCommand",
-                    &encoded,
-                ])
-                .current_dir(&self.cwd)
-                .env("GRADLE_USER_HOME", &metadata.paths.gradle_user_home)
-                .env("ANDROID_SERIAL", &lease.serial)
-                .env("MAVEN_REPO_LOCAL", &metadata.paths.maven_local)
-                .env("AGENT_DEVICE_LEASE_TOKEN", &token);
-            run_managed_output(&mut command, &worktree_lock_path, &build_token)
+            let command_result = windows_gradle_command(&wrapper, &gradle_args);
+            command_result.and_then(|mut command| {
+                command
+                    .current_dir(&self.cwd)
+                    .env("GRADLE_USER_HOME", &metadata.paths.gradle_user_home)
+                    .env("ANDROID_SERIAL", &lease.serial)
+                    .env("MAVEN_REPO_LOCAL", &metadata.paths.maven_local)
+                    .env("AGENT_DEVICE_LEASE_TOKEN", &token);
+                run_managed_output(&mut command, &worktree_lock_path, &build_token)
+            })
         } else {
             let mut command = Command::new(&wrapper);
             command
@@ -2426,16 +2420,8 @@ impl Runtime {
         let build_lock_path = PathBuf::from(&metadata.paths.worktree_root).join("locks/build.json");
         let build_lock = read_json::<BuildLock>(&build_lock_path).context("读取当前构建锁失败")?;
         let status = if cfg!(windows) {
-            let encoded = powershell_invocation(wrapper, &gradle_args);
-            let mut command = Command::new("powershell.exe");
+            let mut command = windows_gradle_command(wrapper, &gradle_args)?;
             command
-                .args([
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-EncodedCommand",
-                    &encoded,
-                ])
                 .current_dir(&self.cwd)
                 .env("GRADLE_USER_HOME", &metadata.paths.gradle_user_home)
                 .env("MAVEN_REPO_LOCAL", &metadata.paths.maven_local)
@@ -4539,6 +4525,90 @@ fn configured_process_limits() -> Result<ProcessLimits> {
         cpu_percent,
         memory_bytes,
     })
+}
+
+// 会话显式固定 JDK 时直接启动 Wrapper，避免批处理和 PATH 选中另一套 Java。
+fn windows_gradle_command(wrapper: &Path, args: &[String]) -> Result<Command> {
+    if let Some(home) = env::var_os("AGENT_JAVA_HOME") {
+        return jdk17_wrapper_command(Path::new(&home), wrapper, args);
+    }
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        &powershell_invocation(wrapper, args),
+    ]);
+    Ok(command)
+}
+
+fn jdk17_wrapper_command(home: &Path, wrapper: &Path, args: &[String]) -> Result<Command> {
+    if !home.is_absolute() {
+        bail!("AGENT_JAVA_HOME 必须为固定 JDK 17 的绝对路径");
+    }
+    let release =
+        fs::read_to_string(home.join("release")).context("无法读取固定 JDK 的版本声明")?;
+    let version = release
+        .lines()
+        .find_map(|line| line.strip_prefix("JAVA_VERSION="))
+        .map(|value| value.trim_matches('"'));
+    if !version.is_some_and(|value| value == "17" || value.starts_with("17.")) {
+        bail!("AGENT_JAVA_HOME 指向的 JDK 不是 17，拒绝启动构建");
+    }
+    let java = home.join("bin/java.exe");
+    let jar = wrapper
+        .parent()
+        .context("Wrapper 缺少所属目录")?
+        .join("gradle/wrapper/gradle-wrapper.jar");
+    if !java.is_file() || !jar.is_file() {
+        bail!("固定 JDK 的 java.exe 或当前项目的 Wrapper JAR 不存在");
+    }
+    let mut command = Command::new(java);
+    command
+        .env("JAVA_HOME", home)
+        .args(["-Xmx64m", "-Dfile.encoding=UTF-8", "-classpath"])
+        .arg(jar)
+        .arg("org.gradle.wrapper.GradleWrapperMain")
+        .args(args);
+    Ok(command)
+}
+
+#[cfg(test)]
+mod pinned_java_tests {
+    use super::*;
+
+    #[test]
+    fn direct_wrapper_keeps_arguments_and_rejects_wrong_jdk() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("jdk with spaces");
+        fs::create_dir_all(home.join("bin")).unwrap();
+        fs::write(home.join("bin/java.exe"), b"test only").unwrap();
+        fs::write(home.join("release"), "JAVA_VERSION=\"17.0.16\"\n").unwrap();
+        let project = root.path().join("project");
+        fs::create_dir_all(project.join("gradle/wrapper")).unwrap();
+        fs::write(
+            project.join("gradle/wrapper/gradle-wrapper.jar"),
+            b"test only",
+        )
+        .unwrap();
+        let wrapper = project.join("gradlew.bat");
+        let args = vec![
+            ":app:testDebugUnitTest".into(),
+            "-Pvalue=a b;literal".into(),
+        ];
+        let command = jdk17_wrapper_command(&home, &wrapper, &args).unwrap();
+        assert_eq!(command.get_program(), home.join("bin/java.exe"));
+        let actual: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(&actual[actual.len() - 2..], &args);
+        assert!(actual.contains(&"org.gradle.wrapper.GradleWrapperMain".into()));
+        fs::write(home.join("release"), "JAVA_VERSION=\"21.0.1\"\n").unwrap();
+        assert!(jdk17_wrapper_command(&home, &wrapper, &args).is_err());
+        assert!(jdk17_wrapper_command(Path::new("relative"), &wrapper, &args).is_err());
+    }
 }
 
 fn update_build_lock_child(path: &Path, token: &str, pid: u32) -> Result<()> {
